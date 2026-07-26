@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ripple — Masuk</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="auth-body">
+
+  <div class="auth-wrap">
+    <div class="auth-brand">
+      <div class="ripple-mark" aria-hidden="true">
+        <span class="ring r1"></span>
+        <span class="ring r2"></span>
+        <span class="ring r3"></span>
+        <span class="dot"></span>
+      </div>
+      <h1>Ripple</h1>
+      <p>Chat, kirim file, dan video call — langsung dari browser.</p>
+    </div>
+
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button id="tabLogin" class="auth-tab is-active" type="button">Masuk</button>
+        <button id="tabRegister" class="auth-tab" type="button">Daftar</button>
+      </div>
+
+      <form id="loginForm" class="auth-form">
+        <label>
+          <span>Email</span>
+          <input type="email" id="loginEmail" required autocomplete="email" placeholder="kamu@email.com" />
+        </label>
+        <label>
+          <span>Kata sandi</span>
+          <input type="password" id="loginPassword" required autocomplete="current-password" placeholder="••••••••" />
+        </label>
+        <button type="submit" class="btn-primary">Masuk</button>
+        <p class="auth-error" id="loginError"></p>
+      </form>
+
+      <form id="registerForm" class="auth-form hidden">
+        <label>
+          <span>Nama pengguna</span>
+          <input type="text" id="registerUsername" required minlength="3" maxlength="24" placeholder="mis. dinda_p" />
+        </label>
+        <label>
+          <span>Email</span>
+          <input type="email" id="registerEmail" required autocomplete="email" placeholder="kamu@email.com" />
+        </label>
+        <label>
+          <span>Kata sandi</span>
+          <input type="password" id="registerPassword" required minlength="6" autocomplete="new-password" placeholder="Minimal 6 karakter" />
+        </label>
+        <button type="submit" class="btn-primary">Buat akun</button>
+        <p class="auth-error" id="registerError"></p>
+        <p class="auth-hint" id="registerHint"></p>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="js/auth.js"></script>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ripple — Chat</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="app-body">
+
+<div class="app-shell">
+
+  <!-- ===================== SIDEBAR ===================== -->
+  <aside class="sidebar" id="sidebar">
+    <header class="sidebar-header">
+      <div class="me">
+        <div class="avatar" id="myAvatar">?</div>
+        <div class="me-info">
+          <strong id="myUsername">—</strong>
+          <span class="status-dot online"></span>
+        </div>
+      </div>
+      <div class="sidebar-actions">
+        <button id="addContactBtn" class="icon-btn" title="Tambah kontak" type="button">＋</button>
+        <button id="logoutBtn" class="icon-btn" title="Keluar" type="button">⎋</button>
+      </div>
+    </header>
+
+    <div class="contact-list" id="contactList">
+      <p class="empty-hint">Memuat kontak…</p>
+    </div>
+  </aside>
+
+  <!-- ===================== CHAT PANEL ===================== -->
+  <main class="chat-panel" id="chatPanel">
+    <div class="chat-empty" id="chatEmpty">
+      <div class="ripple-mark big" aria-hidden="true">
+        <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span><span class="dot"></span>
+      </div>
+      <h2>Pilih kontak untuk mulai mengobrol</h2>
+      <p>Kirim pesan, foto, video call — semuanya tersimpan aman di akunmu.</p>
+    </div>
+
+    <div class="chat-active hidden" id="chatActive">
+      <header class="chat-header">
+        <button class="icon-btn back-btn" id="backBtn" type="button">←</button>
+        <div class="avatar" id="peerAvatar">?</div>
+        <div class="chat-header-info">
+          <strong id="peerUsername">—</strong>
+          <span id="peerStatus">offline</span>
+        </div>
+        <button class="icon-btn call-btn" id="callBtn" title="Video call" type="button">📹</button>
+      </header>
+
+      <div class="messages" id="messages"></div>
+
+      <form class="composer" id="composerForm">
+        <button type="button" class="icon-btn" id="attachBtn" title="Lampirkan file">📎</button>
+        <button type="button" class="icon-btn" id="cameraBtn" title="Buka kamera">📷</button>
+        <input type="file" id="fileInput" hidden />
+        <input type="text" id="messageInput" placeholder="Tulis pesan…" autocomplete="off" />
+        <button type="submit" class="btn-send" title="Kirim">➤</button>
+      </form>
+    </div>
+  </main>
+
+</div>
+
+<!-- ===================== MODAL: TAMBAH KONTAK ===================== -->
+<div class="modal-backdrop hidden" id="addContactModal">
+  <div class="modal">
+    <h3>Tambah kontak</h3>
+    <p class="modal-sub">Masukkan email pengguna Ripple lain.</p>
+    <form id="addContactForm">
+      <input type="email" id="contactEmailInput" placeholder="email@contoh.com" required />
+      <p class="auth-error" id="addContactError"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="cancelAddContact">Batal</button>
+        <button type="submit" class="btn-primary">Tambah</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== MODAL: KAMERA ===================== -->
+<div class="modal-backdrop hidden" id="cameraModal">
+  <div class="modal modal-camera">
+    <h3>Ambil foto</h3>
+    <video id="cameraPreview" autoplay playsinline muted></video>
+    <canvas id="cameraCanvas" hidden></canvas>
+    <img id="cameraSnapshot" hidden alt="Hasil foto" />
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" id="cancelCamera">Batal</button>
+      <button type="button" class="btn-primary" id="shootBtn">Jepret</button>
+      <button type="button" class="btn-primary hidden" id="sendSnapshotBtn">Kirim foto</button>
+      <button type="button" class="btn-ghost hidden" id="retakeBtn">Ulangi</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== OVERLAY: PANGGILAN MASUK ===================== -->
+<div class="modal-backdrop hidden" id="incomingCallModal">
+  <div class="modal call-incoming">
+    <div class="ripple-mark" aria-hidden="true"><span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span><span class="dot"></span></div>
+    <h3 id="incomingCallFrom">Seseorang</h3>
+    <p>Video call masuk…</p>
+    <div class="modal-actions">
+      <button type="button" class="btn-decline" id="declineCallBtn">Tolak</button>
+      <button type="button" class="btn-accept" id="acceptCallBtn">Terima</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== OVERLAY: PANGGILAN AKTIF ===================== -->
+<div class="modal-backdrop hidden" id="activeCallModal">
+  <div class="call-active">
+    <video id="remoteVideo" autoplay playsinline></video>
+    <video id="localVideo" autoplay playsinline muted></video>
+    <div class="call-status" id="callStatusText">Menghubungkan…</div>
+    <div class="call-controls">
+      <button type="button" class="icon-btn call-toggle" id="toggleMicBtn" title="Mikrofon">🎙️</button>
+      <button type="button" class="icon-btn call-toggle" id="toggleCamBtn" title="Kamera">📷</button>
+      <button type="button" class="btn-decline" id="hangupBtn" title="Akhiri panggilan">📞</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
