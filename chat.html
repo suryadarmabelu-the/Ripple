@@ -716,14 +716,37 @@ let camOn = true;
 
 init();
 
+// Buat baris profil kalau belum ada (mis. login pertama kali setelah
+// konfirmasi email, sehingga profil belum sempat dibuat saat daftar).
+async function ensureProfile(session) {
+  const { data: existing } = await supabase
+    .from("profiles").select("*").eq("id", session.user.id).single();
+  if (existing) return existing;
+
+  const base = session.user.user_metadata?.username || session.user.email.split("@")[0];
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const uname = attempt === 0 ? base : `${base}${Math.floor(1000 + Math.random() * 9000)}`;
+    const { data: created, error: createErr } = await supabase
+      .from("profiles")
+      .insert({ id: session.user.id, email: session.user.email, username: uname })
+      .select()
+      .single();
+    if (!created && createErr && !String(createErr.message).toLowerCase().includes("username")) {
+      console.error(createErr);
+      return null;
+    }
+    if (created) return created;
+  }
+  return null;
+}
+
 async function init() {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) { window.location.href = "index.html"; return; }
 
-  const { data: profile, error } = await supabase
-    .from("profiles").select("*").eq("id", session.user.id).single();
-
-  if (error || !profile) {
+  const profile = await ensureProfile(session);
+  if (!profile) {
     await supabase.auth.signOut();
     window.location.href = "index.html";
     return;

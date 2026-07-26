@@ -456,7 +456,11 @@ registerForm.addEventListener("submit", async (e) => {
   const email = document.getElementById("registerEmail").value.trim();
   const password = document.getElementById("registerPassword").value;
 
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { username } },
+  });
   if (error) {
     errorEl.textContent = terjemahkanError(error.message);
     return;
