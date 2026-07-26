@@ -500,6 +500,14 @@ const ICE_SERVERS = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
+    // TURN server cadangan — dipakai kalau koneksi langsung diblokir NAT/hotspot
+    // (mis. laptop & HP di hotspot yang sama tapi hotspot-nya isolasi antar-device,
+    // atau NAT operator seluler yang ketat). Gratis dari Open Relay Project,
+    // cukup buat pemakaian pribadi (20GB/bulan). Kalau nanti butuh lebih,
+    // bikin akun sendiri di metered.ca/tools/openrelay.
+    { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+    { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+    { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
   ],
 };
 
