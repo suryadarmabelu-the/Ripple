@@ -253,6 +253,17 @@ button, input {
 .bubble .b-time {
   display: block; font-family: var(--font-mono); font-size: 10px; opacity: .65; margin-top: 4px; text-align: right;
 }
+.msg-delete-btn {
+  position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--danger); color: #2A0708; border: 2px solid var(--bg); font-size: 11px;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  opacity: 0; transition: opacity .15s; padding: 0;
+}
+.bubble-row.mine:hover .msg-delete-btn,
+.bubble-row.mine .msg-delete-btn:focus-visible { opacity: 1; }
+@media (hover: none) {
+  .msg-delete-btn { opacity: .6; }
+}
 .bubble img.b-media { max-width: 240px; border-radius: var(--radius-s); display: block; margin-bottom: 6px; }
 .bubble a.b-file {
   display: flex; align-items: center; gap: 8px; text-decoration: none; color: inherit;
@@ -383,6 +394,7 @@ button, input {
           <strong id="peerUsername">—</strong>
           <span id="peerStatus">offline</span>
         </div>
+        <button class="icon-btn" id="deleteChatBtn" title="Hapus percakapan">🗑️</button>
         <button class="icon-btn call-btn" id="callBtn" title="Video call" type="button">📹</button>
       </header>
 
@@ -425,6 +437,7 @@ button, input {
     <img id="cameraSnapshot" hidden alt="Hasil foto" />
     <div class="modal-actions">
       <button type="button" class="btn-ghost" id="cancelCamera">Batal</button>
+      <button type="button" class="icon-btn" id="flipCameraBtn" title="Ganti kamera depan/belakang">🔄</button>
       <button type="button" class="btn-primary" id="shootBtn">Jepret</button>
       <button type="button" class="btn-primary hidden" id="sendSnapshotBtn">Kirim foto</button>
       <button type="button" class="btn-ghost hidden" id="retakeBtn">Ulangi</button>
@@ -454,6 +467,8 @@ button, input {
     <div class="call-controls">
       <button type="button" class="icon-btn call-toggle" id="toggleMicBtn" title="Mikrofon">🎙️</button>
       <button type="button" class="icon-btn call-toggle" id="toggleCamBtn" title="Kamera">📷</button>
+      <button type="button" class="icon-btn" id="flipCamBtn" title="Ganti kamera depan/belakang">🔄</button>
+      <button type="button" class="icon-btn" id="fullscreenBtn" title="Layar penuh">⛶</button>
       <button type="button" class="btn-decline" id="hangupBtn" title="Akhiri panggilan">📞</button>
     </div>
   </div>
@@ -474,6 +489,12 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true },
 });
 
+// Public key VAPID untuk Web Push (aman ditaruh di kode publik — cuma
+// dipakai browser untuk memverifikasi server, bukan buat mengirim apa-apa).
+// Private key-nya TIDAK di sini, hanya ada di secret Edge Function.
+const VAPID_PUBLIC_KEY =
+  "BErvMJAH0apPA-eBI2fx5PR2YaIXTQ5iKq3rEclZiv3LGna5aG5aQTnZ1XK739eEw1-u4GqRsfBmy1jZQQn3GHM";
+
 // ---- logika video call (WebRTC) ----
 const ICE_SERVERS = {
   iceServers: [
@@ -490,6 +511,7 @@ let currentCallId = null;
 let currentPeerId = null;
 let pendingIce = [];
 let remoteDescSet = false;
+let currentFacingMode = "user";
 
 // Dipanggil sekali saat aplikasi dimulai
 function initSignaling(userId, handlers) {
@@ -535,6 +557,7 @@ async function startCall(peerId, myUsername, onLocalStream, onRemoteStream, onSt
   currentPeerId = peerId;
   remoteDescSet = false;
   pendingIce = [];
+  currentFacingMode = "user";
 
   const stream = await getMedia();
   onLocalStream(stream);
@@ -563,6 +586,7 @@ async function acceptCall(offerPayload, onLocalStream, onRemoteStream, onStateCh
   currentPeerId = offerPayload.from;
   remoteDescSet = false;
   pendingIce = [];
+  currentFacingMode = "user";
 
   const stream = await getMedia();
   onLocalStream(stream);
@@ -643,9 +667,45 @@ function toggleTrack(kind, enabled) {
   localStream.getTracks().filter((t) => t.kind === kind).forEach((t) => (t.enabled = enabled));
 }
 
+// Ganti kamera depan <-> belakang selama panggilan aktif
+async function switchCamera() {
+  if (!localStream) return null;
+  currentFacingMode = currentFacingMode === "user" ? "environment" : "user";
+  const oldVideoTrack = localStream.getVideoTracks()[0];
+
+  let newStream;
+  try {
+    newStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { exact: currentFacingMode } },
+      audio: false,
+    });
+  } catch (err) {
+    // Perangkat mungkin cuma punya satu kamera / tidak cocok persis — coba tanpa "exact"
+    newStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: currentFacingMode },
+      audio: false,
+    });
+  }
+  const newVideoTrack = newStream.getVideoTracks()[0];
+  newVideoTrack.enabled = oldVideoTrack ? oldVideoTrack.enabled : true;
+
+  if (pc) {
+    const sender = pc.getSenders().find((s) => s.track && s.track.kind === "video");
+    if (sender) await sender.replaceTrack(newVideoTrack);
+  }
+
+  if (oldVideoTrack) {
+    localStream.removeTrack(oldVideoTrack);
+    oldVideoTrack.stop();
+  }
+  localStream.addTrack(newVideoTrack);
+
+  return localStream;
+}
+
 const Call = {
   initSignaling, startCall, acceptCall, declineCall,
-  hangupCall, cleanupCall, getCurrentCallId, toggleTrack,
+  hangupCall, cleanupCall, getCurrentCallId, toggleTrack, switchCamera,
 };
 
 // ---- logika aplikasi chat ----
@@ -665,6 +725,7 @@ const els = {
   peerUsername: document.getElementById("peerUsername"),
   peerStatus: document.getElementById("peerStatus"),
   callBtn: document.getElementById("callBtn"),
+  deleteChatBtn: document.getElementById("deleteChatBtn"),
   messages: document.getElementById("messages"),
 
   composerForm: document.getElementById("composerForm"),
@@ -684,6 +745,7 @@ const els = {
   cameraCanvas: document.getElementById("cameraCanvas"),
   cameraSnapshot: document.getElementById("cameraSnapshot"),
   shootBtn: document.getElementById("shootBtn"),
+  flipCameraBtn: document.getElementById("flipCameraBtn"),
   sendSnapshotBtn: document.getElementById("sendSnapshotBtn"),
   retakeBtn: document.getElementById("retakeBtn"),
   cancelCamera: document.getElementById("cancelCamera"),
@@ -699,6 +761,8 @@ const els = {
   callStatusText: document.getElementById("callStatusText"),
   toggleMicBtn: document.getElementById("toggleMicBtn"),
   toggleCamBtn: document.getElementById("toggleCamBtn"),
+  flipCamBtn: document.getElementById("flipCamBtn"),
+  fullscreenBtn: document.getElementById("fullscreenBtn"),
   hangupBtn: document.getElementById("hangupBtn"),
 };
 
@@ -710,9 +774,18 @@ let messagesChannel = null;
 let presenceChannel = null;
 let onlineIds = new Set();
 let cameraStream = null;
+let cameraFacingMode = "user";
 let pendingOffer = null;
 let micOn = true;
 let camOn = true;
+
+// ---- state untuk notifikasi (pesan/panggilan masuk saat tab tidak aktif) ----
+let globalMessagesChannel = null;
+let profileNameCache = new Map(); // id -> username, biar tidak query berulang
+let audioCtx = null;
+let ringInterval = null;
+const ORIGINAL_TITLE = document.title;
+let titleFlashTimer = null;
 
 init();
 
@@ -758,8 +831,13 @@ async function init() {
 
   setupPresence();
   Call.initSignaling(me.id, callHandlers);
+  setupGlobalMessageWatcher();
   wireUI();
   await loadContacts();
+
+  document.addEventListener("click", unlockAudio, { once: true });
+  const permission = await requestNotifPermission();
+  if (permission === "granted") setupPushNotifications();
 }
 
 // ============================================================
@@ -867,6 +945,8 @@ function wireUI() {
     els.chatPanel.classList.add("is-collapsed");
   });
 
+  els.deleteChatBtn.addEventListener("click", deleteConversation);
+
   // ------- composer -------
   els.composerForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -892,6 +972,7 @@ function wireUI() {
   els.cameraBtn.addEventListener("click", openCameraModal);
   els.cancelCamera.addEventListener("click", closeCameraModal);
   els.shootBtn.addEventListener("click", shootPhoto);
+  els.flipCameraBtn.addEventListener("click", flipCameraModal);
   els.retakeBtn.addEventListener("click", resetCameraView);
   els.sendSnapshotBtn.addEventListener("click", sendSnapshot);
 
@@ -900,6 +981,15 @@ function wireUI() {
   els.acceptCallBtn.addEventListener("click", onAcceptCall);
   els.declineCallBtn.addEventListener("click", onDeclineCall);
   els.hangupBtn.addEventListener("click", () => { Call.hangupCall(); endCallUI(); });
+  els.fullscreenBtn.addEventListener("click", () => {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      exitCallFullscreen();
+    } else {
+      requestCallFullscreen();
+    }
+  });
+  document.addEventListener("fullscreenchange", updateFullscreenBtn);
+  document.addEventListener("webkitfullscreenchange", updateFullscreenBtn);
   els.toggleMicBtn.addEventListener("click", () => {
     micOn = !micOn;
     Call.toggleTrack("audio", micOn);
@@ -909,6 +999,14 @@ function wireUI() {
     camOn = !camOn;
     Call.toggleTrack("video", camOn);
     els.toggleCamBtn.classList.toggle("is-off", !camOn);
+  });
+  els.flipCamBtn.addEventListener("click", async () => {
+    try {
+      const stream = await Call.switchCamera();
+      if (stream) els.localVideo.srcObject = stream;
+    } catch (err) {
+      alert("Tidak bisa mengganti kamera: " + err.message);
+    }
   });
 }
 
@@ -958,6 +1056,34 @@ async function loadMessages(conversationId) {
   scrollMessagesToBottom();
 }
 
+async function deleteConversation() {
+  if (!activeConversation || !activePeer) return;
+  if (!confirm(`Hapus semua percakapan dengan ${activePeer.username}? Tindakan ini tidak bisa dibatalkan.`)) return;
+
+  const convId = activeConversation.id;
+
+  const { error: msgErr } = await supabase.from("messages").delete().eq("conversation_id", convId);
+  if (msgErr) {
+    alert("Gagal menghapus pesan: " + msgErr.message);
+    return;
+  }
+  const { error: convErr } = await supabase.from("conversations").delete().eq("id", convId);
+  if (convErr) {
+    alert("Gagal menghapus percakapan: " + convErr.message);
+    return;
+  }
+
+  if (messagesChannel) { supabase.removeChannel(messagesChannel); messagesChannel = null; }
+  els.messages.innerHTML = "";
+  activeConversation = null;
+  activePeer = null;
+  els.chatActive.classList.add("hidden");
+  els.chatEmpty.classList.remove("hidden");
+  els.sidebar.classList.remove("is-collapsed");
+  els.chatPanel.classList.add("is-collapsed");
+  renderContactList();
+}
+
 function subscribeToMessages(conversationId) {
   if (messagesChannel) supabase.removeChannel(messagesChannel);
   messagesChannel = supabase
@@ -967,12 +1093,18 @@ function subscribeToMessages(conversationId) {
       { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
       (payload) => { renderMessage(payload.new); scrollMessagesToBottom(); }
     )
+    .on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
+      (payload) => { removeMessageEl(payload.old.id); }
+    )
     .subscribe();
 }
 
 function renderMessage(msg) {
   const row = document.createElement("div");
   row.className = "bubble-row " + (msg.sender_id === me.id ? "mine" : "theirs");
+  row.dataset.msgId = msg.id;
 
   const bubble = document.createElement("div");
   bubble.className = "bubble";
@@ -1006,8 +1138,33 @@ function renderMessage(msg) {
   time.textContent = formatTime(msg.created_at);
   bubble.appendChild(time);
 
+  if (msg.sender_id === me.id) {
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "msg-delete-btn";
+    delBtn.title = "Hapus pesan";
+    delBtn.textContent = "✕";
+    delBtn.addEventListener("click", () => deleteMessage(msg.id));
+    bubble.appendChild(delBtn);
+  }
+
   row.appendChild(bubble);
   els.messages.appendChild(row);
+}
+
+async function deleteMessage(id) {
+  if (!confirm("Hapus pesan ini?")) return;
+  const { error } = await supabase.from("messages").delete().eq("id", id);
+  if (error) {
+    alert("Gagal menghapus pesan: " + error.message);
+    return;
+  }
+  removeMessageEl(id);
+}
+
+function removeMessageEl(id) {
+  const el = els.messages.querySelector(`[data-msg-id="${id}"]`);
+  if (el) el.remove();
 }
 
 function scrollMessagesToBottom() {
@@ -1040,13 +1197,29 @@ async function uploadAndSend(file) {
 async function openCameraModal() {
   els.cameraModal.classList.remove("hidden");
   resetCameraView();
+  cameraFacingMode = "user";
+  await startCameraStream();
+}
+
+async function startCameraStream() {
+  if (cameraStream) { cameraStream.getTracks().forEach((t) => t.stop()); cameraStream = null; }
   try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
-    els.cameraPreview.srcObject = cameraStream;
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: cameraFacingMode } } });
   } catch (err) {
-    alert("Tidak bisa mengakses kamera: " + err.message);
-    closeCameraModal();
+    try {
+      cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: cameraFacingMode } });
+    } catch (err2) {
+      alert("Tidak bisa mengakses kamera: " + err2.message);
+      closeCameraModal();
+      return;
+    }
   }
+  els.cameraPreview.srcObject = cameraStream;
+}
+
+function flipCameraModal() {
+  cameraFacingMode = cameraFacingMode === "user" ? "environment" : "user";
+  startCameraStream();
 }
 
 function closeCameraModal() {
@@ -1058,6 +1231,7 @@ function resetCameraView() {
   els.cameraPreview.hidden = false;
   els.cameraSnapshot.hidden = true;
   els.shootBtn.classList.remove("hidden");
+  els.flipCameraBtn.classList.remove("hidden");
   els.sendSnapshotBtn.classList.add("hidden");
   els.retakeBtn.classList.add("hidden");
 }
@@ -1073,6 +1247,7 @@ function shootPhoto() {
   els.cameraSnapshot.hidden = false;
   els.cameraPreview.hidden = true;
   els.shootBtn.classList.add("hidden");
+  els.flipCameraBtn.classList.add("hidden");
   els.sendSnapshotBtn.classList.remove("hidden");
   els.retakeBtn.classList.remove("hidden");
 }
@@ -1086,6 +1261,216 @@ function sendSnapshot() {
 }
 
 // ============================================================
+// NOTIFIKASI (pesan / panggilan masuk saat tab Ripple tidak aktif dilihat)
+//
+// Ini hanya berfungsi kalau tab/browser MASIH TERBUKA (boleh di tab lain,
+// window di-minimize, atau lagi buka percakapan berbeda). Kalau tab atau
+// browsernya benar-benar ditutup, JS di halaman ini tidak jalan sama sekali —
+// itu butuh Web Push + Service Worker + server terpisah (lain cerita).
+// ============================================================
+
+// Minta izin notifikasi begitu user sudah login & masuk ke halaman chat
+function requestNotifPermission() {
+  if (!("Notification" in window)) return Promise.resolve("unsupported");
+  if (Notification.permission !== "default") return Promise.resolve(Notification.permission);
+  return Notification.requestPermission().catch(() => "denied");
+}
+
+// ---- Push notification (jalan walau tab/browser sudah ditutup) ----
+// Butuh service worker (sw.js) di root domain + tabel push_subscriptions
+// di Supabase + Edge Function "send-push". Lihat SETUP-PUSH.md.
+async function setupPushNotifications() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  if (Notification.permission !== "granted") return;
+
+  try {
+    const registration = await navigator.serviceWorker.register("/sw.js");
+    let subscription = await registration.pushManager.getSubscription();
+
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+
+    const raw = subscription.toJSON();
+    await supabase.from("push_subscriptions").upsert(
+      {
+        user_id: me.id,
+        endpoint: raw.endpoint,
+        p256dh: raw.keys.p256dh,
+        auth: raw.keys.auth,
+      },
+      { onConflict: "endpoint" }
+    );
+  } catch (err) {
+    // Browser tidak mendukung, izin ditolak belakangan, atau offline — abaikan diam-diam
+    console.warn("Push notification tidak aktif:", err.message);
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
+
+// Minta Edge Function mengirim push ke lawan bicara saat kita menelepon —
+// ini yang menjangkau dia kalau Ripple-nya sedang tertutup total.
+async function notifyCallViaPush(targetUserId, fromUsername) {
+  try {
+    await supabase.functions.invoke("send-push", {
+      body: { kind: "call", targetUserId, fromUsername },
+    });
+  } catch (err) {
+    // Kalau gagal (mis. edge function belum di-deploy), panggilan tetap
+    // jalan seperti biasa lewat Realtime untuk yang aplikasinya masih terbuka
+    console.warn("Push panggilan gagal dikirim:", err.message);
+  }
+}
+
+// Browser umumnya memblokir audio sebelum ada interaksi user. "Buka kunci"
+// AudioContext begitu user klik apa saja pertama kali di halaman ini.
+function unlockAudio() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  } catch (err) { /* browser tidak mendukung Web Audio, abaikan */ }
+}
+
+// Bunyi "ding" pendek untuk pesan masuk
+function playPingSound() {
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(880, t0);
+  osc.frequency.exponentialRampToValueAtTime(660, t0 + 0.15);
+  gain.gain.setValueAtTime(0.0001, t0);
+  gain.gain.exponentialRampToValueAtTime(0.25, t0 + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t0);
+  osc.stop(t0 + 0.4);
+}
+
+// Nada dering berulang untuk panggilan masuk
+function startRingSound() {
+  if (ringInterval) return;
+  const ringOnce = () => {
+    if (!audioCtx) return;
+    const t0 = audioCtx.currentTime;
+    [0, 0.28].forEach((offset) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(740, t0 + offset);
+      gain.gain.setValueAtTime(0.0001, t0 + offset);
+      gain.gain.exponentialRampToValueAtTime(0.3, t0 + offset + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + offset + 0.24);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t0 + offset);
+      osc.stop(t0 + offset + 0.26);
+    });
+  };
+  ringOnce();
+  ringInterval = setInterval(ringOnce, 1800);
+}
+
+function stopRingSound() {
+  if (ringInterval) { clearInterval(ringInterval); ringInterval = null; }
+}
+
+// Judul tab berkedip-kedip antara teks asli <-> pesan notifikasi
+function startTitleFlash(text) {
+  stopTitleFlash();
+  let showAlert = true;
+  titleFlashTimer = setInterval(() => {
+    document.title = showAlert ? text : ORIGINAL_TITLE;
+    showAlert = !showAlert;
+  }, 1200);
+}
+function stopTitleFlash() {
+  if (titleFlashTimer) { clearInterval(titleFlashTimer); titleFlashTimer = null; }
+  document.title = ORIGINAL_TITLE;
+}
+
+// Begitu tab kembali dilihat, hentikan semua alert visual/suara
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) stopTitleFlash();
+});
+window.addEventListener("focus", () => {
+  stopTitleFlash();
+});
+
+// Tampilkan notifikasi sistem operasi (muncul walau tab di background/minimize)
+function showBrowserNotification(title, body, tag) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return null;
+  try {
+    const notif = new Notification(title, {
+      body,
+      tag,          // notifikasi dengan tag sama akan menumpuk jadi satu, tidak numpuk-numpuk
+      renotify: true,
+      icon: undefined,
+    });
+    notif.onclick = () => {
+      window.focus();
+      notif.close();
+    };
+    return notif;
+  } catch (err) {
+    return null;
+  }
+}
+
+// Cari username pengirim (pakai cache biar tidak query berulang-ulang)
+async function resolveUsername(userId) {
+  if (profileNameCache.has(userId)) return profileNameCache.get(userId);
+  const { data } = await supabase.from("profiles").select("username").eq("id", userId).single();
+  const uname = data?.username || "Seseorang";
+  profileNameCache.set(userId, uname);
+  return uname;
+}
+
+// Dipasang sekali saat login: memantau SEMUA pesan baru yang masuk untuk kita
+// (bukan cuma percakapan yang sedang dibuka), supaya bisa dikasih notifikasi
+// walau lagi ada di percakapan lain atau tab-nya di background.
+function setupGlobalMessageWatcher() {
+  if (globalMessagesChannel) supabase.removeChannel(globalMessagesChannel);
+  globalMessagesChannel = supabase
+    .channel(`global-messages-${me.id}`)
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "messages" },
+      async (payload) => {
+        const msg = payload.new;
+        if (msg.sender_id === me.id) return; // pesan kita sendiri, abaikan
+
+        const isOpenAndVisible =
+          activeConversation &&
+          msg.conversation_id === activeConversation.id &&
+          document.hasFocus() &&
+          !document.hidden;
+
+        if (isOpenAndVisible) return; // sudah kelihatan langsung di layar, tak perlu notif
+
+        const senderName = await resolveUsername(msg.sender_id);
+        const preview = msg.file_url ? "📎 Mengirim berkas" : (msg.content || "Pesan baru");
+
+        playPingSound();
+        if (document.hidden || !document.hasFocus()) {
+          startTitleFlash("💬 Pesan baru — Ripple");
+        }
+        showBrowserNotification(`Pesan baru dari ${senderName}`, preview, `msg-${msg.conversation_id}`);
+      }
+    )
+    .subscribe();
+}
+
+// ============================================================
 // VIDEO CALL
 // ============================================================
 const callHandlers = {
@@ -1094,10 +1479,22 @@ const callHandlers = {
     pendingOffer = payload;
     els.incomingCallFrom.textContent = payload.fromUsername || "Seseorang";
     els.incomingCallModal.classList.remove("hidden");
+
+    startRingSound();
+    if (document.hidden || !document.hasFocus()) {
+      startTitleFlash("📞 Panggilan masuk — Ripple");
+    }
+    showBrowserNotification(
+      "Panggilan video masuk",
+      `${payload.fromUsername || "Seseorang"} meneleponmu di Ripple`,
+      `call-${payload.callId}`
+    );
   },
   onHangup(payload) {
     if (payload.callId === Call.getCurrentCallId()) endCallUI();
     els.incomingCallModal.classList.add("hidden");
+    stopRingSound();
+    stopTitleFlash();
   },
   onDecline() {
     els.callStatusText.textContent = "Panggilan ditolak";
@@ -1105,15 +1502,48 @@ const callHandlers = {
   },
 };
 
+// ============================================================
+// LAYAR PENUH (Fullscreen API)
+// ============================================================
+function requestCallFullscreen() {
+  const el = els.activeCallModal;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+  if (!req) return; // browser tidak mendukung (mis. Safari iPhone) — video tetap penuh via CSS
+  try {
+    const result = req.call(el);
+    if (result && typeof result.catch === "function") {
+      result.catch(() => { /* diblokir browser, abaikan diam-diam */ });
+    }
+  } catch (err) { /* abaikan */ }
+}
+
+function exitCallFullscreen() {
+  if (!(document.fullscreenElement || document.webkitFullscreenElement)) return;
+  const exit = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+  if (!exit) return;
+  try {
+    const result = exit.call(document);
+    if (result && typeof result.catch === "function") result.catch(() => {});
+  } catch (err) { /* abaikan */ }
+}
+
+function updateFullscreenBtn() {
+  const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  els.fullscreenBtn.textContent = isFs ? "🗗" : "⛶";
+  els.fullscreenBtn.title = isFs ? "Keluar layar penuh" : "Layar penuh";
+}
+
 async function startOutgoingCall() {
   if (!activePeer) return;
   micOn = true; camOn = true;
   els.toggleMicBtn.classList.remove("is-off");
   els.toggleCamBtn.classList.remove("is-off");
   els.activeCallModal.classList.remove("hidden");
+  requestCallFullscreen();
   els.callStatusText.textContent = "Memanggil " + activePeer.username + "…";
   try {
     await Call.startCall(activePeer.id, me.username, onLocalStream, onRemoteStream, onConnState);
+    notifyCallViaPush(activePeer.id, me.username); // jaga-jaga kalau Ripple lawan bicara sedang tertutup
   } catch (err) {
     alert("Tidak bisa mengakses kamera/mikrofon: " + err.message);
     endCallUI();
@@ -1123,10 +1553,13 @@ async function startOutgoingCall() {
 async function onAcceptCall() {
   if (!pendingOffer) return;
   els.incomingCallModal.classList.add("hidden");
+  stopRingSound();
+  stopTitleFlash();
   micOn = true; camOn = true;
   els.toggleMicBtn.classList.remove("is-off");
   els.toggleCamBtn.classList.remove("is-off");
   els.activeCallModal.classList.remove("hidden");
+  requestCallFullscreen();
   els.callStatusText.textContent = "Menghubungkan…";
   try {
     await Call.acceptCall(pendingOffer, onLocalStream, onRemoteStream, onConnState);
@@ -1142,6 +1575,8 @@ function onDeclineCall() {
   if (pendingOffer) Call.declineCall(pendingOffer);
   pendingOffer = null;
   els.incomingCallModal.classList.add("hidden");
+  stopRingSound();
+  stopTitleFlash();
 }
 
 function onLocalStream(stream) { els.localVideo.srcObject = stream; }
@@ -1155,6 +1590,7 @@ function onConnState(state) {
 
 function endCallUI() {
   Call.cleanupCall();
+  exitCallFullscreen();
   els.activeCallModal.classList.add("hidden");
   els.localVideo.srcObject = null;
   els.remoteVideo.srcObject = null;
